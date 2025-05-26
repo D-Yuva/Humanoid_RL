@@ -40,11 +40,11 @@ MAX_ACTION_CHANGE = 0.05  # Increased from 0.01 for better responsiveness
 NUM_SERVOS = 17
 
 # NEW HYPERPARAMETERS
-JOINT_DAMPING = 0.3  # FIXED: Reduced from 0.7 to make joints less rigid
+JOINT_DAMPING = 0.5  # FIXED: Reduced from 0.7 to make joints less rigid
 ACTION_L2_REG = 1e-5  # Slightly Reduced L2 regularization
 ACTION_L1_REG = 1e-5  # ADDING L1 action regularization
 UPRIGHT_REWARD_SCALING = 3.0  # Increased importance of staying upright
-FOOT_CONTACT_REWARD = 5.0  # Increased to encourage ground contact
+FOOT_CONTACT_REWARD = 10.0  # Increased to encourage ground contact
 TARGET_VELOCITY_SCALE = 0.5  # Reduced for gentler movements
 
 # New Hyperparameters for Z-Axis Height Reward
@@ -71,7 +71,7 @@ class HumanoidStandEnv(gym.Env):
         if self.use_gui:
             self.physicsClient.append(p.connect(p.GUI))
             for _ in range(num_envs - 1):
-                self.physicsClient.append(p.connect(p.DIRECT))
+                self.physicsClient.append(p.DIRECT)
         else:
             self.physicsClient = [p.connect(p.DIRECT) for _ in range(num_envs)]
 
@@ -199,6 +199,12 @@ class HumanoidStandEnv(gym.Env):
             # Store initial base position
             self.initial_base_positions.append(
                 p.getBasePositionAndOrientation(self.robotId[env_id], physicsClientId=client)[0])
+            
+            # Increase foot friction
+            for foot_index in self.foot_link_indices:
+                p.changeDynamics(self.robotId[env_id], foot_index, lateralFriction=1.0,
+                                spinningFriction=1.0, restitution=0.0, physicsClientId=client)
+            
 
             # FIXED: Run a few simulation steps to let the model settle
             for _ in range(100):  # Increase settling steps from 10 to 100
@@ -281,7 +287,7 @@ class HumanoidStandEnv(gym.Env):
 
                 # Calculate velocity based on position difference
                 position_diff = target_position - current_position
-                target_velocity = position_diff * 5.0  # Proportional control
+                target_velocity = position_diff * 3.0  # Reduced gain for smoother motion
 
                 p.setJointMotorControl2(
                     self.robotId[env_id],
@@ -358,6 +364,15 @@ class HumanoidStandEnv(gym.Env):
             # FIXED: Add penalty for no foot contact
             if foot_contact_count == 0:
                 foot_contact_reward -= 10.0  # Strong penalty for no foot contact
+        
+        # NEW: Foot Position Reward
+        foot_position_penalty = 0
+        for foot_index in self.foot_link_indices:
+            foot_state = p.getLinkState(self.robotId[env_id], foot_index, computeLinkVelocity=1,
+                                        physicsClientId=self.physicsClient[env_id])
+            foot_z = foot_state[0][2]  # Z-coordinate of the foot
+            foot_position_penalty += max(0, 0.0 - foot_z)  # Penalize feet above ground (0.0)
+        foot_position_penalty *= 2.0 # Scale this penalty
 
         # Base position stability
         initial_base_position = self.initial_base_positions[env_id]
@@ -395,11 +410,11 @@ class HumanoidStandEnv(gym.Env):
             vertical_velocity_penalty +  # FIXED: Stronger vertical velocity penalty
             fall_penalty -  # Penalty for falling
             action_l2_penalty -  # Action regularization
-            action_l1_penalty
+            action_l1_penalty -
+            foot_position_penalty # ADD Foot position penalty
         ) * REWARD_SCALE
 
         return reward, done
-
 
 class ReplayBuffer:
     def __init__(self, max_size, obs_dim, action_dim):
@@ -414,7 +429,7 @@ class ReplayBuffer:
         self.done = np.zeros((max_size, 1), dtype=np.float32)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+        self.obs_dim = obs_dim  # Store obs_dim
     def add(self, state, action, next_state, reward, done):
         self.state[self.ptr] = state
         self.action[self.ptr] = action
@@ -430,6 +445,7 @@ class ReplayBuffer:
 
         states = torch.FloatTensor(self.state[ind]).to(self.device)
         actions = torch.FloatTensor(self.action[ind]).to(self.device)
+        # FIX: Use self.obs_dim to create the next_states tensor
         next_states = torch.FloatTensor(self.next_state[ind]).to(self.device)
         rewards = torch.FloatTensor(self.reward[ind]).to(self.device)
         dones = torch.FloatTensor(self.done[ind]).to(self.device)
@@ -708,6 +724,7 @@ def main():
     np.save(EPISODE_REWARD_PATH, np.array(episode_rewards))
     np.save(EPISODE_DURATION_PATH, np.array(episode_durations))
     print("Training completed!")
+
 
 if __name__ == "__main__":
     main()
