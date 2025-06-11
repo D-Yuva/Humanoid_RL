@@ -675,14 +675,14 @@
         <parent link="servo1" />
         <child link="ankel2" />
     </joint>
-    <joint name="servo2_val" type="revolute">
+    <joint name="servo2_val" type="fixed">
         <origin xyz="0.0 0.024749999999999998 0.033" rpy="1.5707963267948966 9.860761315262648e-32 1.4739898164836845e-31" />
         <parent link="csmall1" />
         <child link="servo2" />
         <axis xyz="-7.992343164533666e-32 0.0 1.0" />
         <limit lower="-0.872665" upper="0.872665" effort="1000000" velocity="1000000" />
     </joint>
-    <joint name="servo1_val" type="revolute">
+    <joint name="servo1_val" type="fixed">
         <origin xyz="0.0 0.024749999999999998 0.033" rpy="1.5707963267948966 -4.930380657631324e-32 -1.97324315788137e-31" />
         <parent link="csmall6" />
         <child link="servo1" />
